@@ -1,0 +1,79 @@
+version: 2
+
+models:
+  - name: int_order_reviews_deduped
+    description: Un seul avis par commande (le plus récent, départage par date de création puis review_id).
+    columns:
+      - name: order_id
+        description: Clé primaire. Une ligne par commande ayant au moins un avis.
+        data_tests:
+          - unique
+          - not_null
+      - name: review_id
+        description: Identifiant de l'avis retenu.
+      - name: review_score
+        description: Note de 1 à 5.
+
+  - name: int_geolocation_by_zip
+    description: Coordonnées moyennes (lat/long) par préfixe de code postal.
+    columns:
+      - name: zip_code_prefix
+        description: Clé primaire. Préfixe du code postal (VARCHAR).
+        data_tests:
+          - unique
+          - not_null
+      - name: latitude
+        description: Latitude moyenne.
+      - name: longitude
+        description: Longitude moyenne.
+
+  - name: int_order_payments_agg
+    description: Paiements agrégés par commande.
+    columns:
+      - name: order_id
+        description: Clé primaire.
+        data_tests:
+          - unique
+          - not_null
+      - name: payment_amount
+        description: Montant total payé (BRL).
+      - name: payments_count
+        description: Nombre de paiements.
+      - name: max_installments
+        description: Nombre maximal de mensualités parmi les paiements.
+      - name: main_payment_type
+        description: Type du paiement au montant le plus élevé.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['credit_card', 'boleto', 'voucher', 'debit_card', 'not_defined']
+
+  - name: int_order_items_agg
+    description: Articles agrégés par commande (nombre, montant produits, frais de port).
+    columns:
+      - name: order_id
+        description: Clé primaire.
+        data_tests:
+          - unique
+          - not_null
+      - name: items_count
+        description: Nombre d'articles.
+      - name: items_amount
+        description: Somme des prix des articles (BRL).
+      - name: freight_amount
+        description: Somme des frais de port (BRL).
+
+  - name: int_products_enriched
+    description: Produits avec catégorie anglaise (repli portugais, puis 'unknown').
+    columns:
+      - name: product_id
+        description: Clé primaire.
+        data_tests:
+          - unique
+          - not_null
+      - name: category_name
+        description: Catégorie finale, jamais NULL.
+        data_tests:
+          - not_null
+      - name: category_name_pt
+        description: Catégorie d'origine en portugais (NULL si absente).
