@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: olist
+    description: Données brutes Olist chargées par scripts/load_olist.py. Toutes les colonnes sont en VARCHAR.
+    database: RAW
+    schema: OLIST
+    tables:
+      - name: customers
+      - name: geolocation
+      - name: order_items
+      - name: order_payments
+      - name: order_reviews
+      - name: orders
+      - name: products
+      - name: sellers
+      - name: product_category_name_translation

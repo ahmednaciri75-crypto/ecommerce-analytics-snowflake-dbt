@@ -1,0 +1,245 @@
+version: 2
+
+models:
+  - name: stg_olist__customers
+    description: Une ligne par commande-client (customer_id change à chaque commande). customer_unique_id identifie la vraie personne.
+    columns:
+      - name: customer_id
+        description: Clé primaire. Identifiant du client pour une commande donnée.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_unique_id
+        description: Identifiant stable d'une personne physique, tous achats confondus.
+        data_tests:
+          - not_null
+      - name: zip_code_prefix
+        description: Préfixe du code postal (5 chiffres, conservé en VARCHAR pour ne pas perdre les zéros initiaux).
+      - name: city
+        description: Ville, en minuscules.
+      - name: state
+        description: Code de l'état brésilien (2 lettres majuscules).
+
+  - name: stg_olist__geolocation
+    description: Coordonnées GPS par préfixe de code postal. Plusieurs lignes par préfixe, dont beaucoup de doublons exacts. Pas de clé primaire naturelle ; à dédoublonner en intermediate.
+    columns:
+      - name: zip_code_prefix
+        description: Préfixe du code postal (VARCHAR). Non unique dans cette table.
+        data_tests:
+          - not_null
+      - name: latitude
+        description: Latitude (NUMBER(18,15)).
+      - name: longitude
+        description: Longitude (NUMBER(18,15)).
+      - name: city
+        description: Ville, en minuscules.
+      - name: state
+        description: Code de l'état brésilien.
+
+  - name: stg_olist__orders
+    description: Une ligne par commande, avec son statut et les jalons de livraison.
+    columns:
+      - name: order_id
+        description: Clé primaire de la commande.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Clé étrangère vers stg_olist__customers.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__customers')
+                field: customer_id
+      - name: order_status
+        description: Statut de la commande.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['created', 'approved', 'invoiced', 'processing', 'shipped', 'delivered', 'unavailable', 'canceled']
+      - name: purchased_at
+        description: Horodatage de l'achat.
+        data_tests:
+          - not_null
+      - name: approved_at
+        description: Horodatage de l'approbation du paiement (NULL si jamais approuvée).
+      - name: delivered_to_carrier_at
+        description: Horodatage de remise au transporteur.
+      - name: delivered_to_customer_at
+        description: Horodatage de livraison au client.
+      - name: estimated_delivery_at
+        description: Date de livraison promise au client.
+
+  - name: stg_olist__order_items
+    description: Une ligne par article d'une commande. Clé composite (order_id, order_item_id).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, order_item_id]
+    columns:
+      - name: order_id
+        description: Clé étrangère vers stg_olist__orders.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: order_item_id
+        description: Numéro de l'article dans la commande (1, 2, 3...).
+        data_tests:
+          - not_null
+      - name: product_id
+        description: Clé étrangère vers stg_olist__products.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__products')
+                field: product_id
+      - name: seller_id
+        description: Clé étrangère vers stg_olist__sellers.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__sellers')
+                field: seller_id
+      - name: shipping_limit_at
+        description: Date limite d'expédition par le vendeur.
+      - name: price
+        description: Prix de l'article, NUMBER(12,2), en BRL.
+      - name: freight_value
+        description: Frais de port de l'article, NUMBER(12,2), en BRL.
+
+  - name: stg_olist__order_payments
+    description: Une ligne par paiement. Une commande peut être réglée par plusieurs moyens. Clé composite (order_id, payment_sequential).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, payment_sequential]
+    columns:
+      - name: order_id
+        description: Clé étrangère vers stg_olist__orders.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: payment_sequential
+        description: Numéro d'ordre du paiement au sein de la commande.
+        data_tests:
+          - not_null
+      - name: payment_type
+        description: Moyen de paiement.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['credit_card', 'boleto', 'voucher', 'debit_card', 'not_defined']
+      - name: payment_installments
+        description: Nombre de mensualités.
+      - name: payment_value
+        description: Montant payé, NUMBER(12,2), en BRL.
+
+  - name: stg_olist__order_reviews
+    description: Avis clients. review_id n'est PAS unique (un même avis est rattaché à plusieurs commandes) ; la clé réelle est (review_id, order_id).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [review_id, order_id]
+    columns:
+      - name: review_id
+        description: Identifiant de l'avis. Réutilisé sur plusieurs commandes (789 review_id dupliqués, 814 lignes excédentaires), d'où le test en warn.
+        data_tests:
+          - not_null
+          - unique:
+              config:
+                severity: warn
+      - name: order_id
+        description: Clé étrangère vers stg_olist__orders.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: review_score
+        description: Note de 1 à 5.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+      - name: review_comment_title
+        description: Titre du commentaire (NULL si vide).
+      - name: review_comment_message
+        description: Corps du commentaire (NULL si vide).
+      - name: review_created_at
+        description: Date d'envoi de l'enquête de satisfaction.
+      - name: review_answered_at
+        description: Horodatage de la réponse du client.
+
+  - name: stg_olist__products
+    description: Une ligne par produit du catalogue.
+    columns:
+      - name: product_id
+        description: Clé primaire du produit.
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name
+        description: Catégorie en portugais (NULL pour ~610 produits). Jointure vers la table de traduction.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_olist__product_category_name_translation')
+                field: product_category_name
+              config:
+                severity: warn
+      - name: product_name_length
+        description: Nombre de caractères du nom (colonne source orthographiée "lenght").
+      - name: product_description_length
+        description: Nombre de caractères de la description (source "lenght").
+      - name: product_photos_qty
+        description: Nombre de photos.
+      - name: product_weight_g
+        description: Poids en grammes.
+      - name: product_length_cm
+        description: Longueur en cm.
+      - name: product_height_cm
+        description: Hauteur en cm.
+      - name: product_width_cm
+        description: Largeur en cm.
+
+  - name: stg_olist__sellers
+    description: Une ligne par vendeur.
+    columns:
+      - name: seller_id
+        description: Clé primaire du vendeur.
+        data_tests:
+          - unique
+          - not_null
+      - name: zip_code_prefix
+        description: Préfixe du code postal (VARCHAR).
+      - name: city
+        description: Ville, en minuscules.
+      - name: state
+        description: Code de l'état brésilien.
+
+  - name: stg_olist__product_category_name_translation
+    description: Table de correspondance catégorie portugais -> anglais.
+    columns:
+      - name: product_category_name
+        description: Clé primaire. Nom de catégorie en portugais.
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name_english
+        description: Nom de catégorie en anglais.
+        data_tests:
+          - not_null
